@@ -1,11 +1,14 @@
+import 'dotenv/config'; // 🔹 นำเข้า dotenv เพื่ออ่านรหัส API
 import express from 'express';
 import cors from 'cors';
+import { GoogleGenerativeAI } from '@google/generative-ai'; // 🔹 นำเข้า Gemini AI
 
 const app = express();
 app.use(cors());
 
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const TELEGRAM_TOKEN = (process.env.TELEGRAM_TOKEN || '').trim();
+const TELEGRAM_CHAT_ID = (process.env.TELEGRAM_CHAT_ID || '').trim();
+const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim();
 
 const WATCHLIST = [
     'HLAL', 'PCOR', 'SPUS', 'AAPL', 'MSFT', 
@@ -13,9 +16,7 @@ const WATCHLIST = [
     'TSLA', 'CAT', 'LLY', 'JNJ', 'TXN'
 ]; 
 
-// 🎯 [เพิ่มใหม่]: สมุดจดจำสถานะหุ้น (Anti-Spam Alert)
 const stockStates = {}; 
-
 let cacheData = {}; 
 let isReady = false; 
 let initProgress = 0; 
@@ -34,6 +35,44 @@ async function sendTelegramMessage(text) {
             body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: text, parse_mode: 'HTML' })
         });
     } catch (error) { console.error('❌ ส่งข้อความพลาด:', error.message); }
+}
+
+// 🧠 ฟังก์ชัน AI วิเคราะห์ธุรกิจและความเสี่ยงฮาลาล (ทำงานครั้งเดียวเพื่อประหยัด API)
+async function getAIBusinessAndHalalInsight(symbol, name) {
+    let insight = {
+        business: "ระบบกำลังรวบรวมข้อมูลธุรกิจ...",
+        halalRisk: "กำลังประเมินความเสี่ยง..."
+    };
+
+    if (GEMINI_API_KEY) {
+        try {
+            const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+            const prompt = `
+คุณคือนักวิเคราะห์หุ้นอิสลาม โปรดวิเคราะห์บริษัท ${symbol} (${name}) อย่างกระชับที่สุด
+คำสั่ง:
+1. Business: บริษัทนี้ทำธุรกิจอะไร รายได้หลักมาจากไหน (ไม่เกิน 2 บรรทัด)
+2. Halal Risk: มีความเสี่ยงเรื่องรายได้ต้องห้ามตามหลักอิสลามไหม (เช่น ดอกเบี้ยรับที่สูง, อาวุธ, แอลกอฮอล์, การพนัน) (ไม่เกิน 2 บรรทัด)
+
+รูปแบบการตอบ (ห้ามเปลี่ยนคำนำหน้า):
+ธุรกิจ: [คำตอบ]
+ความเสี่ยง: [คำตอบ]`;
+
+            const result = await model.generateContent(prompt);
+            const text = result.response.text().trim();
+            
+            // แยกข้อความที่ AI ตอบกลับมา
+            const lines = text.split('\n');
+            lines.forEach(line => {
+                if (line.startsWith('ธุรกิจ:')) insight.business = line.replace('ธุรกิจ:', '').trim();
+                if (line.startsWith('ความเสี่ยง:')) insight.halalRisk = line.replace('ความเสี่ยง:', '').trim();
+            });
+        } catch (e) {
+            console.log(`⚠️ Gemini AI วิเคราะห์ ${symbol} พลาด: ${e.message}`);
+        }
+    }
+    return insight;
 }
 
 function calculateRSI(prices) {
@@ -60,7 +99,6 @@ function calculateEMA(prices, period) {
     return Math.round(ema * 100) / 100;
 }
 
-// 🎯 [อัปเดตใหม่]: เปลี่ยนเวลาตลาดเป็น 21:30 - 03:00 น. (เวลาไทย)
 function isMarketOpen() {
     const now = new Date();
     const day = now.getUTCDay(); 
@@ -68,26 +106,21 @@ function isMarketOpen() {
     const minute = now.getUTCMinutes();
     const time = hour + (minute / 60);
     if (day === 0 || day === 6) return false;
-    // 14.5 UTC = 21:30 BKK | 20.0 UTC = 03:00 BKK
     return (time >= 14.5 && time < 20.0);
 }
 
-// 🎯 [เพิ่มใหม่]: ฟังก์ชันแยกแยะสถานะหุ้นตาม RSI
 function determineState(rsi) {
-    if (rsi <= 20) return 'STRONG_BUY';  // ซื้ออย่างยิ่ง
-    if (rsi <= 30) return 'BUY';         // ซื้อ
-    if (rsi >= 80) return 'STRONG_SELL'; // ขายตัดทุน
-    if (rsi >= 70) return 'SELL';        // ขาย
-    return 'NEUTRAL';                    // อยู่ในโซนปกติ
+    if (rsi <= 20) return 'STRONG_BUY';  
+    if (rsi <= 30) return 'BUY';         
+    if (rsi >= 80) return 'STRONG_SELL'; 
+    if (rsi >= 70) return 'SELL';        
+    return 'NEUTRAL';                    
 }
 
-// 🔑 อัปเกรดฟังก์ชัน: จำแลงกายไปขโมย Cookie ให้เนียนกว่าเดิม
 async function getYahooAuth() {
     if (yahooCookie && yahooCrumb) return { cookie: yahooCookie, crumb: yahooCrumb };
     try {
         console.log('🔑 กำลังสร้าง Cookie ยืนยันตัวตนกับ Yahoo...');
-        
-        // เพิ่ม Headers ให้เหมือนเบราว์เซอร์ของคนจริงๆ มากที่สุดเพื่อหลบ Anti-Bot
         const headers = { 
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
@@ -104,7 +137,6 @@ async function getYahooAuth() {
         });
         const crumbStr = await resCrumb.text();
         
-        // ดักจับกรณีที่ Yahoo จับได้แล้วส่งหน้า Error HTML กลับมาแทน Crumb
         if (crumbStr.includes('<html>')) throw new Error('Crumb ถูกบล็อกโดย Yahoo');
         
         yahooCookie = cookieStr;
@@ -112,15 +144,12 @@ async function getYahooAuth() {
         console.log('🔓 ปลดล็อกงบการเงินสำเร็จ!');
         return { cookie: yahooCookie, crumb: yahooCrumb };
     } catch (e) {
-        console.log(`⚠️ ดึง Cookie ไม่สำเร็จ (${e.message}) จะใช้โหมดสำรองชั่วคราว`);
-        // รีเซ็ตค่าเพื่อเปิดโอกาสให้ระบบลองเจาะเกราะใหม่ในรอบ 15 นาทีถัดไป
         yahooCookie = ''; 
         yahooCrumb = '';
         return { cookie: '', crumb: '' };
     }
 }
 
-// ฟังก์ชันดึงข้อมูล (คงเดิม 100%)
 async function fetchStockDataNative(symbol) {
     let currentPrice = 0, changePercent = 0, prices = [], chartSeries = [];
     try {
@@ -210,14 +239,23 @@ async function fetchStockDataNative(symbol) {
 }
 
 async function updateAllStocks() {
-    console.log('🔄 เริ่มดึงข้อมูลด้วยเทคนิค Native API + Authentication Bypass...');
+    console.log('🔄 เริ่มดึงข้อมูลพร้อมพ่วงระบบวิเคราะห์ AI...');
     for (let i = 0; i < WATCHLIST.length; i++) {
         const symbol = WATCHLIST[i];
         try {
             const data = await fetchStockDataNative(symbol);
+            
+            // 🌟 ให้ AI ทำงานเฉพาะตอนที่ยังไม่มีข้อมูลสรุปในแคชเท่านั้น
+            if (!cacheData[symbol] || !cacheData[symbol].aiInsight) {
+                console.log(`🤖 กำลังให้ AI ศึกษาข้อมูลบริษัท ${symbol}...`);
+                data.aiInsight = await getAIBusinessAndHalalInsight(symbol, data.name);
+            } else {
+                // ถ้ามีแล้ว ให้ดึงของเดิมมาใช้เลย (ประหยัด API)
+                data.aiInsight = cacheData[symbol].aiInsight;
+            }
+
             cacheData[symbol] = data;
             
-            // 🎯 [อัปเดตใหม่]: ระบบตรวจจับสถานะและกันสแปม
             if (data.historicalPrices.length > 0) {
                 const ema20 = calculateEMA(data.historicalPrices, 20);
                 const ema50 = calculateEMA(data.historicalPrices, 50);
@@ -227,7 +265,6 @@ async function updateAllStocks() {
                 const lastAlertedState = stockStates[symbol];
 
                 if (currentState !== 'NEUTRAL') {
-                    // แจ้งเตือนเฉพาะ "สถานะที่เปลี่ยนไป" และตลาดต้องเปิด & หุ้นต้องผ่านฮาลาล
                     if (currentState !== lastAlertedState) {
                         let alertTitle = '';
                         if (currentState === 'STRONG_BUY') alertTitle = '🚨 <b>ซื้ออย่างยิ่ง (Strong Buy)</b>';
@@ -236,12 +273,12 @@ async function updateAllStocks() {
                         else if (currentState === 'STRONG_SELL') alertTitle = '💥 <b>ขายตัดทุน (Strong Sell)</b>';
 
                         if (isMarketOpen() && data.isHalal) {
-                            sendTelegramMessage(`${alertTitle}\n📌 หุ้น: <b>${symbol}</b>\n💰 ราคา: $${data.price}\n📊 RSI: ${data.rsi}\nทิศทาง (EMA): ${trend}\n🕌 หนี้สิน: ${data.debtRatio}%`);
-                            stockStates[symbol] = currentState; // อัปเดตสมุดจด
+                            // แจ้งเตือนผ่าน Telegram แบบใหม่ พ่วงสรุป AI
+                            sendTelegramMessage(`${alertTitle}\n📌 หุ้น: <b>${symbol}</b> (${data.name})\n💰 ราคา: $${data.price}\n📊 RSI: ${data.rsi}\nทิศทาง (EMA): ${trend}\n🕌 หนี้สิน: ${data.debtRatio}%\n\n🏢 <b>ธุรกิจ:</b> ${data.aiInsight.business}\n⚖️ <b>ความเสี่ยง:</b> ${data.aiInsight.halalRisk}`);
+                            stockStates[symbol] = currentState; 
                         }
                     }
                 } else {
-                    // หากกลับมาโซนปกติ (RSI 31-69) ให้ลบสมุดจด รอแจ้งเตือนรอบใหม่
                     if (lastAlertedState && lastAlertedState !== 'NEUTRAL') {
                         stockStates[symbol] = 'NEUTRAL';
                     }
@@ -249,14 +286,14 @@ async function updateAllStocks() {
             }
             
             initProgress = i + 1;
-            console.log(`✅ อัปเดต ${symbol} สำเร็จ (${initProgress}/15)`);
+            console.log(`✅ อัปเดต ${symbol} สำเร็จ (${initProgress}/${WATCHLIST.length})`);
         } catch (err) {
             console.log(`⚠️ ดึงข้อมูล ${symbol} พลาด: ${err.message}`);
         }
         await delay(2500); 
     }
     isReady = true;
-    console.log('✅ โหลดข้อมูลครบ 100% พร้อมให้บริการหน้าเว็บแล้ว!');
+    console.log('✅ โหลดข้อมูลและให้ AI วิเคราะห์ครบ 100% พร้อมให้บริการหน้าเว็บแล้ว!');
 }
 
 app.get('/', (req, res) => res.send('🚀 เครื่องยนต์ทำงานปกติ และตื่นอยู่เสมอ!'));
@@ -272,7 +309,7 @@ app.get('/api/stocks', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 พร้อมที่พอร์ต ${PORT}`);
-    sendTelegramMessage('🚀 <b>บอทสตาร์ทเครื่องแล้ว!</b>\nระบบกำลังดึงงบการเงินและกราฟแบบเจาะเกราะ (รอสักครู่)...');
+    sendTelegramMessage('🚀 <b>บอทฮาลาล (อัปเกรด AI) สตาร์ทเครื่องแล้ว!</b>\nระบบกำลังดึงงบการเงินและวิเคราะห์ธุรกิจ (รอสักครู่)...');
     updateAllStocks(); 
     setInterval(updateAllStocks, 15 * 60 * 1000); 
 });
