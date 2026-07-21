@@ -245,12 +245,16 @@ async function updateAllStocks() {
         try {
             const data = await fetchStockDataNative(symbol);
             
-            // 🌟 ให้ AI ทำงานเฉพาะตอนที่ยังไม่มีข้อมูลสรุปในแคชเท่านั้น
-            if (!cacheData[symbol] || !cacheData[symbol].aiInsight) {
+            // 🌟 ให้ AI ทำงานเฉพาะตอนที่ยังไม่มีข้อมูล หรือข้อมูลเก่าเกิน 7 วัน
+            const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+            const now = Date.now();
+
+            if (!cacheData[symbol] || !cacheData[symbol].aiInsight || !cacheData[symbol].aiInsight.lastUpdated || (now - cacheData[symbol].aiInsight.lastUpdated > SEVEN_DAYS_MS)) {
                 console.log(`🤖 กำลังให้ AI ศึกษาข้อมูลบริษัท ${symbol}...`);
                 data.aiInsight = await getAIBusinessAndHalalInsight(symbol, data.name);
+                data.aiInsight.lastUpdated = now; // 🕒 บันทึกเวลาที่ดึงข้อมูลล่าสุด
             } else {
-                // ถ้ามีแล้ว ให้ดึงของเดิมมาใช้เลย (ประหยัด API)
+                // ถ้ามีแล้วและยังไม่หมดอายุ ให้ดึงของเดิมมาใช้เลย (ประหยัด API)
                 data.aiInsight = cacheData[symbol].aiInsight;
             }
 
