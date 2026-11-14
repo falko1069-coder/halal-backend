@@ -10,10 +10,15 @@ const TELEGRAM_TOKEN = (process.env.TELEGRAM_TOKEN || '').trim();
 const TELEGRAM_CHAT_ID = (process.env.TELEGRAM_CHAT_ID || '').trim();
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim();
 
+// 🌎 ตะกร้าหุ้นรวม: หุ้นสหรัฐฯ (US) และ หุ้นไทย (TH - ลงท้ายด้วย .BK)
 const WATCHLIST = [
+    // หุ้นอเมริกา (US Market)
     'HLAL', 'PCOR', 'SPUS', 'AAPL', 'MSFT', 
     'GOOGL', 'ADBE', 'CRM', 'AMD', 'CSCO', 
-    'TSLA', 'CAT', 'LLY', 'JNJ', 'TXN'
+    'TSLA', 'CAT', 'LLY', 'JNJ', 'TXN',
+    // หุ้นไทย (Thai SET Market)
+    'BDMS.BK', 'BH.BK', 'ADVANC.BK', 'HMPRO.BK', 
+    'AOT.BK', 'DELTA.BK', 'PTTEP.BK', 'GULF.BK'
 ]; 
 
 const stockStates = {}; 
@@ -25,6 +30,11 @@ let yahooCrumb = '';
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// ฟังก์ชันเช็คว่าเป็นหุ้นไทยหรือไม่
+function isThaiStock(symbol) {
+    return Boolean(symbol && symbol.toUpperCase().endsWith('.BK'));
+}
+
 async function sendTelegramMessage(text) {
     if (!TELEGRAM_TOKEN) return; 
     const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
@@ -34,10 +44,12 @@ async function sendTelegramMessage(text) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: text, parse_mode: 'HTML' })
         });
-    } catch (error) { console.error('❌ ส่งข้อความพลาด:', error.message); }
+    } catch (error) { 
+        console.error('❌ ส่งข้อความพลาด:', error.message); 
+    }
 }
 
-// 🧠 ฟังก์ชัน AI วิเคราะห์ธุรกิจและความเสี่ยงฮาลาล (ทำงานครั้งเดียวเพื่อประหยัด API)
+// 🧠 ฟังก์ชัน AI วิเคราะห์ธุรกิจและความเสี่ยงฮาลาล (รองรับทั้งหุ้นไทยและอเมริกา)
 async function getAIBusinessAndHalalInsight(symbol, name) {
     let insight = {
         business: "ระบบกำลังรวบรวมข้อมูลธุรกิจ...",
@@ -48,12 +60,13 @@ async function getAIBusinessAndHalalInsight(symbol, name) {
         try {
             const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
             const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const marketName = isThaiStock(symbol) ? "ตลาดหลักทรัพย์แห่งประเทศไทย (SET)" : "ตลาดหุ้นสหรัฐอเมริกา (US)";
 
             const prompt = `
-คุณคือนักวิเคราะห์หุ้นอิสลาม โปรดวิเคราะห์บริษัท ${symbol} (${name}) อย่างกระชับที่สุด
+คุณคือนักวิเคราะห์หุ้นอิสลาม โปรดวิเคราะห์บริษัท ${symbol} (${name}) ซึ่งจดทะเบียนใน${marketName} อย่างกระชับที่สุด
 คำสั่ง:
 1. Business: บริษัทนี้ทำธุรกิจอะไร รายได้หลักมาจากไหน (ไม่เกิน 2 บรรทัด)
-2. Halal Risk: มีความเสี่ยงเรื่องรายได้ต้องห้ามตามหลักอิสลามไหม (เช่น ดอกเบี้ยรับที่สูง, อาวุธ, แอลกอฮอล์, การพนัน) (ไม่เกิน 2 บรรทัด)
+2. Halal Risk: มีความเสี่ยงเรื่องรายได้ต้องห้ามตามหลักอิสลามไหม (เช่น ดอกเบี้ยรับที่สูง, อาวุธ, แอลกอฮอล์, การพนัน, เนื้อสัตว์ต้องห้าม) (ไม่เกิน 2 บรรทัด)
 
 รูปแบบการตอบ (ห้ามเปลี่ยนคำนำหน้า):
 ธุรกิจ: [คำตอบ]
@@ -99,14 +112,28 @@ function calculateEMA(prices, period) {
     return Math.round(ema * 100) / 100;
 }
 
-function isMarketOpen() {
+// ⏰ ฟังก์ชันตรวจสอบเวลาตลาดเปิด (แยกตามสัญชาติหุ้น)
+function isMarketOpen(symbol) {
     const now = new Date();
     const day = now.getUTCDay(); 
     const hour = now.getUTCHours();
     const minute = now.getUTCMinutes();
     const time = hour + (minute / 60);
+    
+    // ปิดทำการวันเสาร์ (6) และวันอาทิตย์ (0)
     if (day === 0 || day === 6) return false;
-    return (time >= 14.5 && time < 20.0);
+
+    if (isThaiStock(symbol)) {
+        // 🇹🇭 เวลาตลาดหุ้นไทย (SET) ตามเวลาไทย (UTC+7):
+        // รอบเช้า: 10:00 - 12:30 น. (ตรงกับ UTC 03:00 - 05:30)
+        // รอบบ่าย: 14:00 - 16:30 น. (ตรงกับ UTC 07:00 - 09:30)
+        const isMorningOpen = (time >= 3.0 && time <= 5.5);
+        const isAfternoonOpen = (time >= 7.0 && time <= 9.5);
+        return isMorningOpen || isAfternoonOpen;
+    } else {
+        // 🇺🇸 เวลาตลาดหุ้นอเมริกาตามที่ตั้งค่าไว้ (UTC 14:30 - 20:00 / เวลาไทย 21:30 - 03:00 น.)
+        return (time >= 14.5 && time < 20.0);
+    }
 }
 
 function determineState(rsi) {
@@ -160,9 +187,9 @@ async function fetchStockDataNative(symbol) {
         const chartData = await chartRes.json();
         const result = chartData.chart.result[0];
         
-        currentPrice = result.meta.regularMarketPrice;
+        currentPrice = Math.round((result.meta.regularMarketPrice || 0) * 100) / 100;
         const previousClose = result.meta.chartPreviousClose || currentPrice;
-        changePercent = ((currentPrice - previousClose) / previousClose) * 100;
+        changePercent = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
         
         const timestamps = result.timestamp || [];
         const closes = result.indicators.quote[0].close || [];
@@ -171,20 +198,21 @@ async function fetchStockDataNative(symbol) {
         const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
         for (let i = 0; i < closes.length; i++) {
-            if (closes[i] !== null) {
-                prices.push(closes[i]);
+            if (closes[i] !== null && closes[i] !== undefined) {
+                const roundedClose = Math.round(closes[i] * 100) / 100;
+                prices.push(roundedClose);
                 const date = new Date(timestamps[i] * 1000);
                 if (date.getTime() >= thirtyAgo) {
                     chartSeries.push({
                         dateLabel: `${months[date.getMonth()]} ${date.getDate()}`,
                         t: `${months[date.getMonth()]} ${date.getDate()}`,
-                        price: Math.round(closes[i] * 100) / 100
+                        price: roundedClose
                     });
                 }
             }
         }
     } catch (e) {
-        console.log(`⚠️ ข้ามกราฟของ ${symbol}`);
+        console.log(`⚠️ ข้ามกราฟของ ${symbol}: ${e.message}`);
     }
 
     let name = symbol;
@@ -204,7 +232,7 @@ async function fetchStockDataNative(symbol) {
         
         if (finData.quoteSummary && finData.quoteSummary.result) {
             const finResult = finData.quoteSummary.result[0];
-            name = finResult.price?.shortName || symbol;
+            name = finResult.price?.shortName || finResult.price?.longName || symbol;
             const marketCap = finResult.price?.marketCap?.raw || 0;
             const totalDebt = finResult.financialData?.totalDebt?.raw || 0;
 
@@ -217,29 +245,43 @@ async function fetchStockDataNative(symbol) {
             }
         }
     } catch (e) {
+        // ระบบสำรอง (Fallback) กรณีดึง quoteSummary ไม่สำเร็จ
         try {
             const quoteRes = await fetch(`https://query2.finance.yahoo.com/v7/finance/quote?symbols=${symbol}`);
             const quoteData = await quoteRes.json();
             const qResult = quoteData.quoteResponse.result[0];
-            name = qResult.shortName || symbol;
+            name = qResult.shortName || qResult.longName || symbol;
             const marketCap = qResult.marketCap || 0;
-            if(marketCap > 0) assetsM = (marketCap / 1000000).toFixed(0);
+            if (marketCap > 0) assetsM = (marketCap / 1000000).toFixed(0);
         } catch (fallbackErr) {}
     }
 
     const rsi = prices.length > 0 ? calculateRSI(prices) : 50;
-    const supportLevel = prices.length > 0 ? Math.min(...prices) : 0;
-    const resistanceLevel = prices.length > 0 ? Math.max(...prices) : 0;
+    const supportLevel = prices.length > 0 ? Math.round(Math.min(...prices) * 100) / 100 : 0;
+    const resistanceLevel = prices.length > 0 ? Math.round(Math.max(...prices) * 100) / 100 : 0;
+    const isTH = isThaiStock(symbol);
 
     return {
-        symbol, name, price: currentPrice, change: changePercent,
-        chartSeries, historicalPrices: prices, supportLevel, resistanceLevel,
-        rsi, debtRatio: debtRatioStr, totalDebt: debtM, totalAssets: assetsM, isHalal: isPass
+        symbol, 
+        name, 
+        market: isTH ? 'TH' : 'US',
+        currency: isTH ? '฿' : '$',
+        price: currentPrice, 
+        change: changePercent,
+        chartSeries, 
+        historicalPrices: prices, 
+        supportLevel, 
+        resistanceLevel,
+        rsi, 
+        debtRatio: debtRatioStr, 
+        totalDebt: debtM, 
+        totalAssets: assetsM, 
+        isHalal: isPass
     };
 }
 
 async function updateAllStocks() {
-    console.log('🔄 เริ่มดึงข้อมูลพร้อมพ่วงระบบวิเคราะห์ AI...');
+    console.log('🔄 เริ่มดึงข้อมูลหุ้น US และ TH พร้อมพ่วงระบบวิเคราะห์ AI...');
     for (let i = 0; i < WATCHLIST.length; i++) {
         const symbol = WATCHLIST[i];
         try {
@@ -276,9 +318,13 @@ async function updateAllStocks() {
                         else if (currentState === 'SELL') alertTitle = '🔴 <b>สัญญาณขาย (Sell)</b>';
                         else if (currentState === 'STRONG_SELL') alertTitle = '💥 <b>ขายตัดทุน (Strong Sell)</b>';
 
-                        if (isMarketOpen() && data.isHalal) {
-                            // แจ้งเตือนผ่าน Telegram แบบใหม่ พ่วงสรุป AI
-                            sendTelegramMessage(`${alertTitle}\n📌 หุ้น: <b>${symbol}</b> (${data.name})\n💰 ราคา: $${data.price}\n📊 RSI: ${data.rsi}\nทิศทาง (EMA): ${trend}\n🕌 หนี้สิน: ${data.debtRatio}%\n\n🏢 <b>ธุรกิจ:</b> ${data.aiInsight.business}\n⚖️ <b>ความเสี่ยง:</b> ${data.aiInsight.halalRisk}`);
+                        // เช็คเวลาเปิดตลาดตามสัญชาติหุ้น (US หรือ TH) และต้องผ่านเกณฑ์ฮาลาล
+                        if (isMarketOpen(symbol) && data.isHalal) {
+                            const flag = data.market === 'TH' ? '🇹🇭' : '🇺🇸';
+                            const curr = data.currency;
+                            
+                            // แจ้งเตือนผ่าน Telegram พร้อมสกุลเงินและธงชาติที่ถูกต้อง
+                            sendTelegramMessage(`${alertTitle}\n${flag} หุ้น: <b>${symbol}</b> (${data.name})\n💰 ราคา: ${curr}${data.price}\n📊 RSI: ${data.rsi}\nทิศทาง (EMA): ${trend}\n🕌 หนี้สิน: ${data.debtRatio}%\n\n🏢 <b>ธุรกิจ:</b> ${data.aiInsight.business}\n⚖️ <b>ความเสี่ยง:</b> ${data.aiInsight.halalRisk}`);
                             stockStates[symbol] = currentState; 
                         }
                     }
@@ -300,7 +346,7 @@ async function updateAllStocks() {
     console.log('✅ โหลดข้อมูลและให้ AI วิเคราะห์ครบ 100% พร้อมให้บริการหน้าเว็บแล้ว!');
 }
 
-app.get('/', (req, res) => res.send('🚀 เครื่องยนต์ทำงานปกติ และตื่นอยู่เสมอ!'));
+app.get('/', (req, res) => res.send('🚀 เครื่องยนต์ทำงานปกติ รองรับทั้งตลาด US และ TH!'));
 app.get('/api/stocks', (req, res) => { 
     res.json({
         isReady: isReady,
@@ -313,7 +359,7 @@ app.get('/api/stocks', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 พร้อมที่พอร์ต ${PORT}`);
-    sendTelegramMessage('🚀 <b>บอทฮาลาล (อัปเกรด AI) สตาร์ทเครื่องแล้ว!</b>\nระบบกำลังดึงงบการเงินและวิเคราะห์ธุรกิจ (รอสักครู่)...');
+    sendTelegramMessage('🚀 <b>บอทฮาลาล (US & TH Market + AI) สตาร์ทเครื่องแล้ว!</b>\nระบบกำลังดึงงบการเงินและวิเคราะห์ธุรกิจ (รอสักครู่)...');
     updateAllStocks(); 
     setInterval(updateAllStocks, 15 * 60 * 1000); 
 });
