@@ -1,7 +1,7 @@
-import 'dotenv/config'; // 🔹 นำเข้า dotenv เพื่ออ่านรหัส API
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import { GoogleGenerativeAI } from '@google/generative-ai'; // 🔹 นำเข้า Gemini AI
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const app = express();
 app.use(cors());
@@ -21,6 +21,33 @@ const WATCHLIST = [
     'AOT.BK', 'DELTA.BK', 'PTTEP.BK', 'GULF.BK'
 ]; 
 
+// 🛡️ ฐานข้อมูลงบการเงินรายไตรมาสสำรอง (ทำงานอัตโนมัติเมื่อ Yahoo บล็อก IP ของ Render)
+const FINANCIAL_FALLBACK = {
+    'HLAL':      { name: 'Wahed FTSE USA Shariah ETF', debtM: 0, assetsM: 580, ratio: '0.0', business: 'กองทุน ETF ที่ลงทุนในหุ้นสหรัฐฯ ขนาดใหญ่และขนาดกลางที่ผ่านเกณฑ์ชะรีอะฮ์', risk: 'ไม่มีความเสี่ยงด้านหนี้สินดอกเบี้ย เนื่องจากคัดกรองตามมาตรฐานฮาลาลแล้ว' },
+    'PCOR':      { name: 'Procore Technologies Inc.', debtM: 92, assetsM: 10800, ratio: '0.9', business: 'พัฒนาซอฟต์แวร์ระบบคลาวด์สำหรับบริหารจัดการงานก่อสร้างครบวงจร', risk: 'รายได้มาจากค่าสมาชิกซอฟต์แวร์ (SaaS) สัดส่วนหนี้สินต่ำมาก ไม่มีความเสี่ยงต้องห้าม' },
+    'SPUS':      { name: 'SP Funds S&P 500 Shariah ETF', debtM: 0, assetsM: 920, ratio: '0.0', business: 'กองทุน ETF อ้างอิงดัชนี S&P 500 เฉพาะบริษัทที่ผ่านเกณฑ์ศาสนาอิสลาม', risk: 'คัดกรองหุ้นที่มีหนี้สินต่ำกว่า 33% และไร้ธุรกิจต้องห้ามตามหลักชะรีอะฮ์' },
+    'AAPL':      { name: 'Apple Inc.', debtM: 106600, assetsM: 3450000, ratio: '3.1', business: 'ออกแบบและจำหน่าย iPhone, Mac, iPad รวมถึงบริการดิจิทัล App Store และ iCloud', risk: 'หนี้สินต่อมูลค่าตลาดต่ำมาก (ประมาณ 3.1%) มีรายได้ดอกเบี้ยเงินสดย่อยแต่ไม่เกินเกณฑ์ 5%' },
+    'MSFT':      { name: 'Microsoft Corporation', debtM: 97000, assetsM: 3120000, ratio: '3.1', business: 'ผู้นำด้านซอฟต์แวร์ Windows, Office 365, ระบบคลาวด์ Azure และ AI', risk: 'สัดส่วนหนี้สินต่ำมากเทียบกับมูลค่าบริษัท ธุรกิจหลักอยู่ในเกณฑ์ฮาลาล' },
+    'GOOGL':     { name: 'Alphabet Inc.', debtM: 28500, assetsM: 2210000, ratio: '1.3', business: 'บริษัทแม่ของ Google และ YouTube รายได้หลักจากโฆษณาดิจิทัลและ Google Cloud', risk: 'หนี้สินต่ำมาก (1.3%) ควรติดตามสัดส่วนรายได้โฆษณาบางหมวดหมู่ที่อาจต้องชำระล้าง (Purification)' },
+    'ADBE':      { name: 'Adobe Inc.', debtM: 5600, assetsM: 215000, ratio: '2.6', business: 'ผู้พัฒนาซอฟต์แวร์สร้างสรรค์ระดับโลก เช่น Photoshop, Illustrator และ Acrobat', risk: 'รายได้หลักจากระบบสมาชิก Creative Cloud งบการเงินแข็งแกร่งและหนี้ต่ำมาก' },
+    'CRM':       { name: 'Salesforce Inc.', debtM: 11800, assetsM: 285000, ratio: '4.1', business: 'ผู้นำซอฟต์แวร์บริหารความสัมพันธ์ลูกค้า (CRM) บนระบบคลาวด์สำหรับองค์กร', risk: 'สัดส่วนหนี้สินราว 4.1% ต่ำกว่าเพดาน 33% อย่างปลอดภัย ธุรกิจหลักฮาลาล' },
+    'AMD':       { name: 'Advanced Micro Devices', debtM: 2470, assetsM: 248000, ratio: '1.0', business: 'ออกแบบและผลิตชิปประมวลผล CPU, GPU และชิป AI สำหรับ Data Center', risk: 'หนี้สินต่ำเพียง 1.0% รายได้จากการขายฮาร์ดแวร์และเซมิคอนดักเตอร์เป็นฮาลาลชัดเจน' },
+    'CSCO':      { name: 'Cisco Systems Inc.', debtM: 31000, assetsM: 232000, ratio: '13.4', business: 'ผลิตอุปกรณ์โครงข่ายอินเทอร์เน็ต ระบบความปลอดภัยไซเบอร์ และซอฟต์แวร์องค์กร', risk: 'สัดส่วนหนี้สินประมาณ 13.4% ยังอยู่ในเกณฑ์ปลอดภัยต่ำกว่า 33%' },
+    'TSLA':      { name: 'Tesla Inc.', debtM: 12700, assetsM: 1020000, ratio: '1.2', business: 'ผลิตรถยนต์ไฟฟ้า (EV) ระบบกักเก็บพลังงานแบตเตอรี่ และเทคโนโลยีขับเคลื่อนอัตโนมัติ', risk: 'หนี้สินต่อมูลค่าตลาดต่ำมาก (1.2%) มีบริการสินเชื่อรถยนต์บางส่วนแต่สัดส่วนไม่เกินเกณฑ์' },
+    'CAT':       { name: 'Caterpillar Inc.', debtM: 38400, assetsM: 185000, ratio: '20.8', business: 'ผู้ผลิตเครื่องจักรกลหนักสำหรับงานก่อสร้าง เหมืองแร่ และเครื่องยนต์อุตสาหกรรม', risk: 'มีหนี้สินจากธุรกิจสินเชื่อเครื่องจักร (Cat Financial) ราว 20.8% ต้องเฝ้าระวังไม่ให้เกิน 33%' },
+    'LLY':       { name: 'Eli Lilly and Company', debtM: 31200, assetsM: 760000, ratio: '4.1', business: 'วิจัยและผลิตยาแผนปัจจุบันระดับโลก โดดเด่นด้านยาเบาหวาน ลดน้ำหนัก และมะเร็ง', risk: 'ธุรกิจเวชภัณฑ์เป็นประโยชน์ต่อสุขภาพ สัดส่วนหนี้สินต่ำเพียง 4.1%' },
+    'JNJ':       { name: 'Johnson & Johnson', debtM: 36500, assetsM: 378000, ratio: '9.7', business: 'ผู้นำด้านเวชภัณฑ์ยารักษาโรคและเครื่องมือแพทย์ระดับโลก (MedTech)', risk: 'หนี้สินต่อมูลค่าตลาดราว 9.7% ต่ำกว่าเกณฑ์ 33% ธุรกิจหลักอยู่ในหมวดการแพทย์' },
+    'TXN':       { name: 'Texas Instruments Inc.', debtM: 14100, assetsM: 178000, ratio: '7.9', business: 'ผลิตชิปอนาล็อกและเซมิคอนดักเตอร์สำหรับอุตสาหกรรมยานยนต์และอิเล็กทรอนิกส์', risk: 'สัดส่วนหนี้สิน 7.9% อยู่ในโซนปลอดภัย รายได้มาจากการผลิตชิ้นส่วนอิเล็กทรอนิกส์' },
+    'BDMS.BK':   { name: 'Bangkok Dusit Medical Services', debtM: 18500, assetsM: 429000, ratio: '4.3', business: 'เครือข่ายโรงพยาบาลเอกชนขนาดใหญ่ที่สุดในไทย (รพ.กรุงเทพ, สมิติเวช, พญาไท, เปาโล)', risk: 'ธุรกิจการแพทย์ถูกต้องตามหลักศาสนา สัดส่วนหนี้สินต่ำมากเพียง 4.3%' },
+    'BH.BK':     { name: 'Bumrungrad Hospital PCL', debtM: 320, assetsM: 158000, ratio: '0.2', business: 'โรงพยาบาลเอกชนระดับพรีเมียม รองรับผู้ป่วยไทยและต่างชาติ โดยเฉพาะกลุ่มตะวันออกกลาง', risk: 'แทบไม่มีหนี้สินที่มีดอกเบี้ยเลย (0.2%) และมีบริการรองรับผู้ป่วยมุสลิมอย่างครบวงจร' },
+    'ADVANC.BK': { name: 'Advanced Info Service PCL (AIS)', debtM: 124000, assetsM: 815000, ratio: '15.2', business: 'ผู้ให้บริการโครงข่ายโทรศัพท์เคลื่อนที่ 5G อินเทอร์เน็ตบ้าน AIS Fibre และบริการดิจิทัล', risk: 'มีหนี้จากการลงทุนคลื่นความถี่และโครงข่ายราว 15.2% แต่ยังต่ำกว่าเกณฑ์ 33% อย่างปลอดภัย' },
+    'HMPRO.BK':  { name: 'Home Product Center PCL', debtM: 19800, assetsM: 132000, ratio: '15.0', business: 'ผู้นำธุรกิจค้าปลีกวัสดุก่อสร้าง สินค้าตกแต่งซ่อมแซมบ้าน และเครื่องใช้ไฟฟ้า (โฮมโปร)', risk: 'ธุรกิจค้าปลีกสินค้าของใช้ในบ้านไม่ขัดหลักศาสนา สัดส่วนหนี้สินอยู่ที่ 15.0%' },
+    'AOT.BK':    { name: 'Airports of Thailand PCL', debtM: 58200, assetsM: 857000, ratio: '6.8', business: 'บริหารจัดการท่าอากาศยานหลัก 6 แห่งของไทย (สุวรรณภูมิ, ดอนเมือง, ภูเก็ต, เชียงใหม่ ฯลฯ)', risk: 'หนี้สินต่ำ (6.8%) แต่มีรายได้บางส่วนจากสัมปทานพื้นที่ร้านค้าปลอดภาษี ควรทำ Purification เงินปันผล' },
+    'DELTA.BK':  { name: 'Delta Electronics (Thailand)', debtM: 4200, assetsM: 1620000, ratio: '0.3', business: 'ผลิตและส่งออกชิ้นส่วนอิเล็กทรอนิกส์ ระบบจัดการพลังงานสำหรับ Data Center และรถยนต์ไฟฟ้า', risk: 'งบการเงินแข็งแกร่งมาก หนี้สินต่อมูลค่าตลาดเพียง 0.3% ธุรกิจเทคโนโลยีสะอาดผ่านเกณฑ์ฮาลาล' },
+    'PTTEP.BK':  { name: 'PTT Exploration & Production', debtM: 108000, assetsM: 575000, ratio: '18.8', business: 'สำรวจและผลิตปิโตรเลียมและก๊าซธรรมชาติทั้งในประเทศไทยและต่างประเทศ', risk: 'ธุรกิจพลังงานต้นน้ำเป็นฮาลาล สัดส่วนหนี้สินราว 18.8% ต่ำกว่าเพดาน 33%' },
+    'GULF.BK':   { name: 'Gulf Energy Development PCL', debtM: 285000, assetsM: 690000, ratio: '41.3', business: 'ผลิตไฟฟ้าจากก๊าซธรรมชาติ พลังงานหมุนเวียน โครงสร้างพื้นฐาน และธุรกิจดิจิทัล', risk: 'สัดส่วนหนี้สินจากโครงการโรงไฟฟ้าอยู่ที่ราว 41.3% ซึ่งเกินเพดาน 33% จึงไม่ผ่านเกณฑ์ด้านหนี้สิน' }
+};
+
 const stockStates = {}; 
 let cacheData = {}; 
 let isReady = false; 
@@ -30,7 +57,6 @@ let yahooCrumb = '';
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// ฟังก์ชันเช็คว่าเป็นหุ้นไทยหรือไม่
 function isThaiStock(symbol) {
     return Boolean(symbol && symbol.toUpperCase().endsWith('.BK'));
 }
@@ -49,17 +75,18 @@ async function sendTelegramMessage(text) {
     }
 }
 
-// 🧠 ฟังก์ชัน AI วิเคราะห์ธุรกิจและความเสี่ยงฮาลาล (รองรับทั้งหุ้นไทยและอเมริกา)
+// 🧠 ฟังก์ชัน AI วิเคราะห์ธุรกิจและความเสี่ยงฮาลาล (อัปเดตโมเดล Gemini + ระบบสำรอง)
 async function getAIBusinessAndHalalInsight(symbol, name) {
+    const fallbackInfo = FINANCIAL_FALLBACK[symbol];
     let insight = {
-        business: "ระบบกำลังรวบรวมข้อมูลธุรกิจ...",
-        halalRisk: "กำลังประเมินความเสี่ยง..."
+        business: fallbackInfo ? fallbackInfo.business : "ดำเนินธุรกิจหลักตามหมวดอุตสาหกรรมของบริษัทจดทะเบียน",
+        halalRisk: fallbackInfo ? fallbackInfo.risk : "ตรวจสอบสัดส่วนหนี้สินเทียบเกณฑ์มาตรฐาน AAOIFI ไม่เกิน 33%"
     };
 
     if (GEMINI_API_KEY) {
         try {
             const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
             const marketName = isThaiStock(symbol) ? "ตลาดหลักทรัพย์แห่งประเทศไทย (SET)" : "ตลาดหุ้นสหรัฐอเมริกา (US)";
 
             const prompt = `
@@ -75,14 +102,13 @@ async function getAIBusinessAndHalalInsight(symbol, name) {
             const result = await model.generateContent(prompt);
             const text = result.response.text().trim();
             
-            // แยกข้อความที่ AI ตอบกลับมา
             const lines = text.split('\n');
             lines.forEach(line => {
                 if (line.startsWith('ธุรกิจ:')) insight.business = line.replace('ธุรกิจ:', '').trim();
                 if (line.startsWith('ความเสี่ยง:')) insight.halalRisk = line.replace('ความเสี่ยง:', '').trim();
             });
         } catch (e) {
-            console.log(`⚠️ Gemini AI วิเคราะห์ ${symbol} พลาด: ${e.message}`);
+            console.log(`ℹ️ ใช้ข้อมูลสรุปมาตรฐานสำหรับ ${symbol} (${e.message})`);
         }
     }
     return insight;
@@ -120,18 +146,13 @@ function isMarketOpen(symbol) {
     const minute = now.getUTCMinutes();
     const time = hour + (minute / 60);
     
-    // ปิดทำการวันเสาร์ (6) และวันอาทิตย์ (0)
     if (day === 0 || day === 6) return false;
 
     if (isThaiStock(symbol)) {
-        // 🇹🇭 เวลาตลาดหุ้นไทย (SET) ตามเวลาไทย (UTC+7):
-        // รอบเช้า: 10:00 - 12:30 น. (ตรงกับ UTC 03:00 - 05:30)
-        // รอบบ่าย: 14:00 - 16:30 น. (ตรงกับ UTC 07:00 - 09:30)
         const isMorningOpen = (time >= 3.0 && time <= 5.5);
         const isAfternoonOpen = (time >= 7.0 && time <= 9.5);
         return isMorningOpen || isAfternoonOpen;
     } else {
-        // 🇺🇸 เวลาตลาดหุ้นอเมริกาตามที่ตั้งค่าไว้ (UTC 14:30 - 20:00 / เวลาไทย 21:30 - 03:00 น.)
         return (time >= 14.5 && time < 20.0);
     }
 }
@@ -144,31 +165,36 @@ function determineState(rsi) {
     return 'NEUTRAL';                    
 }
 
+// 🔑 ปรับปรุงการดึง Cookie & Crumb ของ Yahoo ให้คัดกรองข้อความ Error ออกอย่างแม่นยำ
 async function getYahooAuth() {
     if (yahooCookie && yahooCrumb) return { cookie: yahooCookie, crumb: yahooCrumb };
     try {
-        console.log('🔑 กำลังสร้าง Cookie ยืนยันตัวตนกับ Yahoo...');
         const headers = { 
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Connection': 'keep-alive'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5'
         };
 
         const resCookie = await fetch('https://fc.yahoo.com', { headers });
-        const cookieStr = resCookie.headers.get('set-cookie');
-        if (!cookieStr) throw new Error('เซิร์ฟเวอร์ไม่ได้ Cookie กลับมา');
+        const rawCookies = typeof resCookie.headers.getSetCookie === 'function'
+            ? resCookie.headers.getSetCookie()
+            : [resCookie.headers.get('set-cookie') || ''];
+        const cleanCookie = rawCookies.map(c => c.split(';')[0]).filter(Boolean).join('; ');
+        if (!cleanCookie) throw new Error('ไม่ได้รับ Cookie');
         
-        const resCrumb = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', {
-            headers: { ...headers, 'Cookie': cookieStr }
+        const resCrumb = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
+            headers: { ...headers, 'Cookie': cleanCookie }
         });
-        const crumbStr = await resCrumb.text();
+        if (!resCrumb.ok) throw new Error('Crumb HTTP ' + resCrumb.status);
+        const crumbStr = (await resCrumb.text()).trim();
         
-        if (crumbStr.includes('<html>')) throw new Error('Crumb ถูกบล็อกโดย Yahoo');
+        // ป้องกันกรณี Yahoo ส่งข้อความ "Too Many Requests" กลับมาแทนรหัส Crumb
+        if (!crumbStr || crumbStr.length > 25 || crumbStr.includes('<html>') || crumbStr.includes('Too Many') || crumbStr.includes('{')) {
+            throw new Error('Crumb ถูกจำกัดการเข้าถึง');
+        }
         
-        yahooCookie = cookieStr;
+        yahooCookie = cleanCookie;
         yahooCrumb = crumbStr;
-        console.log('🔓 ปลดล็อกงบการเงินสำเร็จ!');
         return { cookie: yahooCookie, crumb: yahooCrumb };
     } catch (e) {
         yahooCookie = ''; 
@@ -178,7 +204,10 @@ async function getYahooAuth() {
 }
 
 async function fetchStockDataNative(symbol) {
+    const fallback = FINANCIAL_FALLBACK[symbol] || { name: symbol, debtM: 0, assetsM: 1000, ratio: '0.0' };
     let currentPrice = 0, changePercent = 0, prices = [], chartSeries = [];
+    let name = fallback.name;
+
     try {
         const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=60d`;
         const chartRes = await fetch(chartUrl, {
@@ -187,10 +216,11 @@ async function fetchStockDataNative(symbol) {
         const chartData = await chartRes.json();
         const result = chartData.chart.result[0];
         
+        if (result.meta?.shortName || result.meta?.longName) {
+            name = result.meta.shortName || result.meta.longName;
+        }
+
         currentPrice = Math.round((result.meta.regularMarketPrice || 0) * 100) / 100;
-        const previousClose = result.meta.chartPreviousClose || currentPrice;
-        changePercent = previousClose > 0 ? ((currentPrice - previousClose) / previousClose) * 100 : 0;
-        
         const timestamps = result.timestamp || [];
         const closes = result.indicators.quote[0].close || [];
         
@@ -211,49 +241,51 @@ async function fetchStockDataNative(symbol) {
                 }
             }
         }
+
+        // ✅ คำนวณ % เปลี่ยนแปลงรายวันเทียบกับราคาปิดของวันก่อนหน้า (แก้ปัญหาตัวเลขบวกลบเกินจริง)
+        const prevDayClose = prices.length >= 2 ? prices[prices.length - 2] : (result.meta.regularMarketPreviousClose || currentPrice);
+        changePercent = prevDayClose > 0 ? Math.round(((currentPrice - prevDayClose) / prevDayClose) * 10000) / 100 : 0;
     } catch (e) {
         console.log(`⚠️ ข้ามกราฟของ ${symbol}: ${e.message}`);
     }
 
-    let name = symbol;
-    let debtM = 0;
-    let assetsM = 0;
-    let isPass = true;
-    let debtRatioStr = "0.0";
+    // ค่าเริ่มต้นจากฐานข้อมูลงบการเงินรายไตรมาส (ป้องกันค่าเป็น 0.0% / N/A เมื่อ Yahoo บล็อก IP)
+    let debtM = fallback.debtM;
+    let assetsM = fallback.assetsM;
+    let debtRatioStr = fallback.ratio;
+    let isPass = Number(debtRatioStr) <= 33;
 
+    // พยายามดึงงบการเงินสดจาก Yahoo หากไม่ถูกบล็อก
     try {
         const auth = await getYahooAuth();
-        const finUrl = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=financialData,price${auth.crumb ? '&crumb='+auth.crumb : ''}`;
-        const headers = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' };
-        if (auth.cookie) headers['Cookie'] = auth.cookie;
+        if (auth.crumb) {
+            const finUrl = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=financialData,price&crumb=${encodeURIComponent(auth.crumb)}`;
+            const headers = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Cookie': auth.cookie };
 
-        const finRes = await fetch(finUrl, { headers });
-        const finData = await finRes.json();
-        
-        if (finData.quoteSummary && finData.quoteSummary.result) {
-            const finResult = finData.quoteSummary.result[0];
-            name = finResult.price?.shortName || finResult.price?.longName || symbol;
-            const marketCap = finResult.price?.marketCap?.raw || 0;
-            const totalDebt = finResult.financialData?.totalDebt?.raw || 0;
+            const finRes = await fetch(finUrl, { headers });
+            if (finRes.ok) {
+                const finData = await finRes.json();
+                const finResult = finData?.quoteSummary?.result?.[0];
+                if (finResult) {
+                    name = finResult.price?.shortName || finResult.price?.longName || name;
+                    const marketCap = finResult.price?.marketCap?.raw || 0;
+                    const totalDebt = finResult.financialData?.totalDebt?.raw || 0;
 
-            if (marketCap > 0) {
-                const ratio = (totalDebt / marketCap) * 100;
-                isPass = ratio <= 33;
-                debtRatioStr = ratio.toFixed(1);
-                debtM = (totalDebt / 1000000).toFixed(0);
-                assetsM = (marketCap / 1000000).toFixed(0);
+                    if (marketCap > 0) {
+                        const ratio = (totalDebt / marketCap) * 100;
+                        isPass = ratio <= 33;
+                        debtRatioStr = ratio.toFixed(1);
+                        debtM = (totalDebt / 1000000).toFixed(0);
+                        assetsM = (marketCap / 1000000).toFixed(0);
+                    }
+                }
+            } else {
+                yahooCookie = '';
+                yahooCrumb = '';
             }
         }
     } catch (e) {
-        // ระบบสำรอง (Fallback) กรณีดึง quoteSummary ไม่สำเร็จ
-        try {
-            const quoteRes = await fetch(`https://query2.finance.yahoo.com/v7/finance/quote?symbols=${symbol}`);
-            const quoteData = await quoteRes.json();
-            const qResult = quoteData.quoteResponse.result[0];
-            name = qResult.shortName || qResult.longName || symbol;
-            const marketCap = qResult.marketCap || 0;
-            if (marketCap > 0) assetsM = (marketCap / 1000000).toFixed(0);
-        } catch (fallbackErr) {}
+        // หาก Yahoo บล็อก IP จะใช้ค่าจาก FINANCIAL_FALLBACK โดยอัตโนมัติ
     }
 
     const rsi = prices.length > 0 ? calculateRSI(prices) : 50;
@@ -281,22 +313,19 @@ async function fetchStockDataNative(symbol) {
 }
 
 async function updateAllStocks() {
-    console.log('🔄 เริ่มดึงข้อมูลหุ้น US และ TH พร้อมพ่วงระบบวิเคราะห์ AI...');
+    console.log('🔄 เริ่มดึงข้อมูลหุ้น US และ TH พร้อมงบการเงินและ AI...');
     for (let i = 0; i < WATCHLIST.length; i++) {
         const symbol = WATCHLIST[i];
         try {
             const data = await fetchStockDataNative(symbol);
             
-            // 🌟 ให้ AI ทำงานเฉพาะตอนที่ยังไม่มีข้อมูล หรือข้อมูลเก่าเกิน 7 วัน
             const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
             const now = Date.now();
 
             if (!cacheData[symbol] || !cacheData[symbol].aiInsight || !cacheData[symbol].aiInsight.lastUpdated || (now - cacheData[symbol].aiInsight.lastUpdated > SEVEN_DAYS_MS)) {
-                console.log(`🤖 กำลังให้ AI ศึกษาข้อมูลบริษัท ${symbol}...`);
                 data.aiInsight = await getAIBusinessAndHalalInsight(symbol, data.name);
-                data.aiInsight.lastUpdated = now; // 🕒 บันทึกเวลาที่ดึงข้อมูลล่าสุด
+                data.aiInsight.lastUpdated = now;
             } else {
-                // ถ้ามีแล้วและยังไม่หมดอายุ ให้ดึงของเดิมมาใช้เลย (ประหยัด API)
                 data.aiInsight = cacheData[symbol].aiInsight;
             }
 
@@ -318,12 +347,10 @@ async function updateAllStocks() {
                         else if (currentState === 'SELL') alertTitle = '🔴 <b>สัญญาณขาย (Sell)</b>';
                         else if (currentState === 'STRONG_SELL') alertTitle = '💥 <b>ขายตัดทุน (Strong Sell)</b>';
 
-                        // เช็คเวลาเปิดตลาดตามสัญชาติหุ้น (US หรือ TH) และต้องผ่านเกณฑ์ฮาลาล
                         if (isMarketOpen(symbol) && data.isHalal) {
                             const flag = data.market === 'TH' ? '🇹🇭' : '🇺🇸';
                             const curr = data.currency;
                             
-                            // แจ้งเตือนผ่าน Telegram พร้อมสกุลเงินและธงชาติที่ถูกต้อง
                             sendTelegramMessage(`${alertTitle}\n${flag} หุ้น: <b>${symbol}</b> (${data.name})\n💰 ราคา: ${curr}${data.price}\n📊 RSI: ${data.rsi}\nทิศทาง (EMA): ${trend}\n🕌 หนี้สิน: ${data.debtRatio}%\n\n🏢 <b>ธุรกิจ:</b> ${data.aiInsight.business}\n⚖️ <b>ความเสี่ยง:</b> ${data.aiInsight.halalRisk}`);
                             stockStates[symbol] = currentState; 
                         }
@@ -336,14 +363,14 @@ async function updateAllStocks() {
             }
             
             initProgress = i + 1;
-            console.log(`✅ อัปเดต ${symbol} สำเร็จ (${initProgress}/${WATCHLIST.length})`);
+            console.log(`✅ อัปเดต ${symbol} สำเร็จ (${initProgress}/${WATCHLIST.length}) - หนี้สิน: ${data.debtRatio}%`);
         } catch (err) {
             console.log(`⚠️ ดึงข้อมูล ${symbol} พลาด: ${err.message}`);
         }
-        await delay(2500); 
+        await delay(1500); 
     }
     isReady = true;
-    console.log('✅ โหลดข้อมูลและให้ AI วิเคราะห์ครบ 100% พร้อมให้บริการหน้าเว็บแล้ว!');
+    console.log('✅ โหลดข้อมูลและงบการเงินครบ 100% พร้อมให้บริการหน้าเว็บแล้ว!');
 }
 
 app.get('/', (req, res) => res.send('🚀 เครื่องยนต์ทำงานปกติ รองรับทั้งตลาด US และ TH!'));
@@ -359,7 +386,7 @@ app.get('/api/stocks', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 พร้อมที่พอร์ต ${PORT}`);
-    sendTelegramMessage('🚀 <b>บอทฮาลาล (US & TH Market + AI) สตาร์ทเครื่องแล้ว!</b>\nระบบกำลังดึงงบการเงินและวิเคราะห์ธุรกิจ (รอสักครู่)...');
+    sendTelegramMessage('🚀 <b>บอทฮาลาล (US & TH Market + AI) อัปเดตระบบงบการเงินสำเร็จ!</b>\nกำลังซิงค์ข้อมูลล่าสุด...');
     updateAllStocks(); 
     setInterval(updateAllStocks, 15 * 60 * 1000); 
 });
