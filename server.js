@@ -10,12 +10,12 @@ const TELEGRAM_TOKEN = (process.env.TELEGRAM_TOKEN || '').trim();
 const TELEGRAM_CHAT_ID = (process.env.TELEGRAM_CHAT_ID || '').trim();
 const GEMINI_API_KEY = (process.env.GEMINI_API_KEY || '').trim();
 
-// 🌎 ตะกร้าหุ้นรวม: หุ้นสหรัฐฯ (US) และ หุ้นไทย (TH - ลงท้ายด้วย .BK)
+// 🌎 ตะกร้าหุ้นรวม: คัดเฉพาะหุ้นที่คลีนจาก BDS และเกาะเมกะเทรนด์โลก (US 15 ตัว + TH 8 ตัว = 23 ตัว)
 const WATCHLIST = [
-    // หุ้นอเมริกา (US Market)
-    'HLAL', 'PCOR', 'SPUS', 'AAPL', 'MSFT', 
-    'GOOGL', 'ADBE', 'CRM', 'AMD', 'CSCO', 
-    'TSLA', 'CAT', 'LLY', 'JNJ', 'TXN',
+    // หุ้นอเมริกา & เมกะเทรนด์โลก (US Market - ตัด AAPL, MSFT, GOOGL, CSCO, CAT ออกแล้ว)
+    'HLAL', 'PCOR', 'SPUS', 'TSM', 'ASML', 
+    'ANET', 'ADBE', 'CRM', 'AMD', 'ISRG', 
+    'TSLA', 'FSLR', 'LLY', 'JNJ', 'TXN',
     // หุ้นไทย (Thai SET Market)
     'BDMS.BK', 'BH.BK', 'ADVANC.BK', 'HMPRO.BK', 
     'AOT.BK', 'DELTA.BK', 'PTTEP.BK', 'GULF.BK'
@@ -26,15 +26,15 @@ const FINANCIAL_FALLBACK = {
     'HLAL':      { name: 'Wahed FTSE USA Shariah ETF', debtM: 0, assetsM: 580, ratio: '0.0', business: 'กองทุน ETF ที่ลงทุนในหุ้นสหรัฐฯ ขนาดใหญ่และขนาดกลางที่ผ่านเกณฑ์ชะรีอะฮ์', risk: 'ไม่มีความเสี่ยงด้านหนี้สินดอกเบี้ย เนื่องจากคัดกรองตามมาตรฐานฮาลาลแล้ว' },
     'PCOR':      { name: 'Procore Technologies Inc.', debtM: 92, assetsM: 10800, ratio: '0.9', business: 'พัฒนาซอฟต์แวร์ระบบคลาวด์สำหรับบริหารจัดการงานก่อสร้างครบวงจร', risk: 'รายได้มาจากค่าสมาชิกซอฟต์แวร์ (SaaS) สัดส่วนหนี้สินต่ำมาก ไม่มีความเสี่ยงต้องห้าม' },
     'SPUS':      { name: 'SP Funds S&P 500 Shariah ETF', debtM: 0, assetsM: 920, ratio: '0.0', business: 'กองทุน ETF อ้างอิงดัชนี S&P 500 เฉพาะบริษัทที่ผ่านเกณฑ์ศาสนาอิสลาม', risk: 'คัดกรองหุ้นที่มีหนี้สินต่ำกว่า 33% และไร้ธุรกิจต้องห้ามตามหลักชะรีอะฮ์' },
-    'AAPL':      { name: 'Apple Inc.', debtM: 106600, assetsM: 3450000, ratio: '3.1', business: 'ออกแบบและจำหน่าย iPhone, Mac, iPad รวมถึงบริการดิจิทัล App Store และ iCloud', risk: 'หนี้สินต่อมูลค่าตลาดต่ำมาก (ประมาณ 3.1%) มีรายได้ดอกเบี้ยเงินสดย่อยแต่ไม่เกินเกณฑ์ 5%' },
-    'MSFT':      { name: 'Microsoft Corporation', debtM: 97000, assetsM: 3120000, ratio: '3.1', business: 'ผู้นำด้านซอฟต์แวร์ Windows, Office 365, ระบบคลาวด์ Azure และ AI', risk: 'สัดส่วนหนี้สินต่ำมากเทียบกับมูลค่าบริษัท ธุรกิจหลักอยู่ในเกณฑ์ฮาลาล' },
-    'GOOGL':     { name: 'Alphabet Inc.', debtM: 28500, assetsM: 2210000, ratio: '1.3', business: 'บริษัทแม่ของ Google และ YouTube รายได้หลักจากโฆษณาดิจิทัลและ Google Cloud', risk: 'หนี้สินต่ำมาก (1.3%) ควรติดตามสัดส่วนรายได้โฆษณาบางหมวดหมู่ที่อาจต้องชำระล้าง (Purification)' },
+    'TSM':       { name: 'Taiwan Semiconductor (TSMC)', debtM: 58000, assetsM: 910000, ratio: '6.4', business: 'โรงงานรับจ้างผลิตชิปเซมิคอนดักเตอร์และชิป AI อันดับ 1 ของโลกจากไต้หวัน', risk: 'สัดส่วนหนี้สินต่ำเพียง 6.4% รายได้มาจากการผลิตฮาร์ดแวร์ชิปต้นน้ำ ผ่านเกณฑ์ฮาลาลและคลีนจาก BDS' },
+    'ASML':      { name: 'ASML Holding N.V.', debtM: 14500, assetsM: 380000, ratio: '3.8', business: 'ผู้ผูกขาดการผลิตเครื่องฉายแสงลิโทกราฟี (EUV) สำหรับผลิตชิปขั้นสูงรายเดียวในโลก (เนเธอร์แลนด์)', risk: 'หนี้สินต่อมูลค่าตลาดต่ำมาก (3.8%) ธุรกิจเครื่องจักรผลิตชิปผ่านเกณฑ์ฮาลาลชัดเจน' },
+    'ANET':      { name: 'Arista Networks Inc.', debtM: 0, assetsM: 118000, ratio: '0.0', business: 'ผู้นำด้านสวิตช์เครือข่ายความเร็วสูงและซอฟต์แวร์ระบบคลาวด์สำหรับ AI Data Center', risk: 'บริษัทไร้หนี้สินที่มีดอกเบี้ย (Debt 0.0%) งบการเงินคลีนและผ่านเกณฑ์ฮาลาล 100%' },
     'ADBE':      { name: 'Adobe Inc.', debtM: 5600, assetsM: 215000, ratio: '2.6', business: 'ผู้พัฒนาซอฟต์แวร์สร้างสรรค์ระดับโลก เช่น Photoshop, Illustrator และ Acrobat', risk: 'รายได้หลักจากระบบสมาชิก Creative Cloud งบการเงินแข็งแกร่งและหนี้ต่ำมาก' },
     'CRM':       { name: 'Salesforce Inc.', debtM: 11800, assetsM: 285000, ratio: '4.1', business: 'ผู้นำซอฟต์แวร์บริหารความสัมพันธ์ลูกค้า (CRM) บนระบบคลาวด์สำหรับองค์กร', risk: 'สัดส่วนหนี้สินราว 4.1% ต่ำกว่าเพดาน 33% อย่างปลอดภัย ธุรกิจหลักฮาลาล' },
     'AMD':       { name: 'Advanced Micro Devices', debtM: 2470, assetsM: 248000, ratio: '1.0', business: 'ออกแบบและผลิตชิปประมวลผล CPU, GPU และชิป AI สำหรับ Data Center', risk: 'หนี้สินต่ำเพียง 1.0% รายได้จากการขายฮาร์ดแวร์และเซมิคอนดักเตอร์เป็นฮาลาลชัดเจน' },
-    'CSCO':      { name: 'Cisco Systems Inc.', debtM: 31000, assetsM: 232000, ratio: '13.4', business: 'ผลิตอุปกรณ์โครงข่ายอินเทอร์เน็ต ระบบความปลอดภัยไซเบอร์ และซอฟต์แวร์องค์กร', risk: 'สัดส่วนหนี้สินประมาณ 13.4% ยังอยู่ในเกณฑ์ปลอดภัยต่ำกว่า 33%' },
+    'ISRG':      { name: 'Intuitive Surgical Inc.', debtM: 0, assetsM: 185000, ratio: '0.0', business: 'ผู้นำระดับโลกด้านหุ่นยนต์ช่วยผ่าตัดอัจฉริยะ (Da Vinci Surgical System) และอุปกรณ์การแพทย์', risk: 'ไร้หนี้สินที่มีดอกเบี้ย (0.0%) ธุรกิจนวัตกรรมการแพทย์ช่วยชีวิตผู้ป่วย ผ่านเกณฑ์ฮาลาล 100%' },
     'TSLA':      { name: 'Tesla Inc.', debtM: 12700, assetsM: 1020000, ratio: '1.2', business: 'ผลิตรถยนต์ไฟฟ้า (EV) ระบบกักเก็บพลังงานแบตเตอรี่ และเทคโนโลยีขับเคลื่อนอัตโนมัติ', risk: 'หนี้สินต่อมูลค่าตลาดต่ำมาก (1.2%) มีบริการสินเชื่อรถยนต์บางส่วนแต่สัดส่วนไม่เกินเกณฑ์' },
-    'CAT':       { name: 'Caterpillar Inc.', debtM: 38400, assetsM: 185000, ratio: '20.8', business: 'ผู้ผลิตเครื่องจักรกลหนักสำหรับงานก่อสร้าง เหมืองแร่ และเครื่องยนต์อุตสาหกรรม', risk: 'มีหนี้สินจากธุรกิจสินเชื่อเครื่องจักร (Cat Financial) ราว 20.8% ต้องเฝ้าระวังไม่ให้เกิน 33%' },
+    'FSLR':      { name: 'First Solar Inc.', debtM: 620, assetsM: 24000, ratio: '2.6', business: 'ผู้ผลิตแผงโซลาร์เซลล์เทคโนโลยี Thin-Film ชั้นนำสำหรับโรงไฟฟ้าพลังงานแสงอาทิตย์และ Data Center', risk: 'หนี้สินต่ำมากเพียง 2.6% ธุรกิจพลังงานสะอาดเป็นมิตรต่อสิ่งแวดล้อมและผ่านเกณฑ์ฮาลาล' },
     'LLY':       { name: 'Eli Lilly and Company', debtM: 31200, assetsM: 760000, ratio: '4.1', business: 'วิจัยและผลิตยาแผนปัจจุบันระดับโลก โดดเด่นด้านยาเบาหวาน ลดน้ำหนัก และมะเร็ง', risk: 'ธุรกิจเวชภัณฑ์เป็นประโยชน์ต่อสุขภาพ สัดส่วนหนี้สินต่ำเพียง 4.1%' },
     'JNJ':       { name: 'Johnson & Johnson', debtM: 36500, assetsM: 378000, ratio: '9.7', business: 'ผู้นำด้านเวชภัณฑ์ยารักษาโรคและเครื่องมือแพทย์ระดับโลก (MedTech)', risk: 'หนี้สินต่อมูลค่าตลาดราว 9.7% ต่ำกว่าเกณฑ์ 33% ธุรกิจหลักอยู่ในหมวดการแพทย์' },
     'TXN':       { name: 'Texas Instruments Inc.', debtM: 14100, assetsM: 178000, ratio: '7.9', business: 'ผลิตชิปอนาล็อกและเซมิคอนดักเตอร์สำหรับอุตสาหกรรมยานยนต์และอิเล็กทรอนิกส์', risk: 'สัดส่วนหนี้สิน 7.9% อยู่ในโซนปลอดภัย รายได้มาจากการผลิตชิ้นส่วนอิเล็กทรอนิกส์' },
@@ -242,7 +242,7 @@ async function fetchStockDataNative(symbol) {
             }
         }
 
-        // ✅ คำนวณ % เปลี่ยนแปลงรายวันเทียบกับราคาปิดของวันก่อนหน้า (แก้ปัญหาตัวเลขบวกลบเกินจริง)
+        // ✅ คำนวณ % เปลี่ยนแปลงรายวันเทียบกับราคาปิดของวันก่อนหน้า
         const prevDayClose = prices.length >= 2 ? prices[prices.length - 2] : (result.meta.regularMarketPreviousClose || currentPrice);
         changePercent = prevDayClose > 0 ? Math.round(((currentPrice - prevDayClose) / prevDayClose) * 10000) / 100 : 0;
     } catch (e) {
@@ -373,7 +373,7 @@ async function updateAllStocks() {
     console.log('✅ โหลดข้อมูลและงบการเงินครบ 100% พร้อมให้บริการหน้าเว็บแล้ว!');
 }
 
-app.get('/', (req, res) => res.send('🚀 เครื่องยนต์ทำงานปกติ รองรับทั้งตลาด US และ TH!'));
+app.get('/', (req, res) => res.send('🚀 เครื่องยนต์ทำงานปกติ รองรับทั้งตลาด US และ TH (BDS-Free Edition)!'));
 app.get('/api/stocks', (req, res) => { 
     res.json({
         isReady: isReady,
@@ -386,7 +386,7 @@ app.get('/api/stocks', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 พร้อมที่พอร์ต ${PORT}`);
-    sendTelegramMessage('🚀 <b>บอทฮาลาล (US & TH Market + AI) อัปเดตระบบงบการเงินสำเร็จ!</b>\nกำลังซิงค์ข้อมูลล่าสุด...');
+    sendTelegramMessage('🚀 <b>บอทฮาลาล (US & TH Market + AI) อัปเดตตะกร้าหุ้นใหม่ (BDS-Free & Global Megatrends) สำเร็จ!</b>\nกำลังซิงค์ข้อมูลล่าสุด...');
     updateAllStocks(); 
     setInterval(updateAllStocks, 15 * 60 * 1000); 
 });
