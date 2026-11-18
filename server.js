@@ -342,16 +342,27 @@ async function updateAllStocks() {
                 if (currentState !== 'NEUTRAL') {
                     if (currentState !== lastAlertedState) {
                         let alertTitle = '';
-                        if (currentState === 'STRONG_BUY') alertTitle = '🚨 <b>ซื้ออย่างยิ่ง (Strong Buy)</b>';
-                        else if (currentState === 'BUY') alertTitle = '🟢 <b>สัญญาณซื้อ (Buy)</b>';
-                        else if (currentState === 'SELL') alertTitle = '🔴 <b>สัญญาณขาย (Sell)</b>';
-                        else if (currentState === 'STRONG_SELL') alertTitle = '💥 <b>ขายตัดทุน (Strong Sell)</b>';
+                        let actionAdvice = '';
+
+                        if (currentState === 'STRONG_BUY') {
+                            alertTitle = '🚨 <b>จังหวะช้อนซื้อโซนถูกจัด (Strong Buy / Extreme Oversold)</b>';
+                            actionAdvice = 'ราคาย่อลงมาลึกมาก แนะนำพิจารณาทยอยช้อนซื้อสะสม';
+                        } else if (currentState === 'BUY') {
+                            alertTitle = '🟢 <b>สัญญาณเข้าซื้อโซนราคาถูก (Buy / Oversold)</b>';
+                            actionAdvice = 'ราคาอ่อนตัวลงมาในจุดได้เปรียบ สามารถแบ่งไม้เข้าซื้อได้';
+                        } else if (currentState === 'SELL') {
+                            alertTitle = '🟠 <b>สัญญาณแบ่งขายทำกำไร / ราคาเริ่มตึง (Take Profit / Overbought)</b>';
+                            actionAdvice = 'ราคาวิ่งขึ้นมาสูงในระยะสั้น มีหุ้นอยู่พิจารณาแบ่งขายล็อกกำไร ยังไม่มีห้ามไล่ราคา';
+                        } else if (currentState === 'STRONG_SELL') {
+                            alertTitle = '💰 <b>สัญญาณขายล็อกกำไร / ราคาพุ่งตึงจัด (Strong Take Profit / Extreme Overbought)</b>';
+                            actionAdvice = 'ราคาพุ่งแรงจนตึงตัวมาก แนะนำแบ่งขายทำกำไรเข้ากระเป๋า และงดไล่ราคาเด็ดขาด';
+                        }
 
                         if (isMarketOpen(symbol) && data.isHalal) {
                             const flag = data.market === 'TH' ? '🇹🇭' : '🇺🇸';
                             const curr = data.currency;
                             
-                            sendTelegramMessage(`${alertTitle}\n${flag} หุ้น: <b>${symbol}</b> (${data.name})\n💰 ราคา: ${curr}${data.price}\n📊 RSI: ${data.rsi}\nทิศทาง (EMA): ${trend}\n🕌 หนี้สิน: ${data.debtRatio}%\n\n🏢 <b>ธุรกิจ:</b> ${data.aiInsight.business}\n⚖️ <b>ความเสี่ยง:</b> ${data.aiInsight.halalRisk}`);
+                            sendTelegramMessage(`${alertTitle}\n${flag} หุ้น: <b>${symbol}</b> (${data.name})\n💰 ราคา: ${curr}${data.price}\n📊 RSI (14D): ${data.rsi}\nทิศทาง (EMA): ${trend}\n🕌 หนี้สิน: ${data.debtRatio}%\n💡 <b>คำแนะนำ:</b> ${actionAdvice}\n\n🏢 <b>ธุรกิจ:</b> ${data.aiInsight.business}\n⚖️ <b>ความเสี่ยง:</b> ${data.aiInsight.halalRisk}`);
                             stockStates[symbol] = currentState; 
                         }
                     }
@@ -386,7 +397,7 @@ app.get('/api/stocks', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🚀 พร้อมที่พอร์ต ${PORT}`);
-    sendTelegramMessage('🚀 <b>บอทฮาลาล (US & TH Market + AI) อัปเดตตะกร้าหุ้นใหม่ (BDS-Free & Global Megatrends) สำเร็จ!</b>\nกำลังซิงค์ข้อมูลล่าสุด...');
+    sendTelegramMessage('🚀 <b>บอทฮาลาล (US & TH Market + AI) อัปเดตระบบแจ้งเตือน RSI และตะกร้าหุ้นใหม่สำเร็จ!</b>\nกำลังซิงค์ข้อมูลล่าสุด...');
     updateAllStocks(); 
     setInterval(updateAllStocks, 15 * 60 * 1000); 
 });
